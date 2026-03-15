@@ -121,7 +121,7 @@
           <button class="btn" id="share-btn" style="background:#e1306c;border-color:#c1135a;color:#fff;">📷 Share to Instagram</button>
         </div>
         <div class="btn-row">
-          <button class="btn dl-html" id="dl-html-btn">⬇ Save HTML</button>
+
         </div>
       </div>
     </div>
@@ -646,16 +646,6 @@
     a.download = 'manual.png';
     a.click();
   }
-
-  document.getElementById('dl-html-btn').onclick = () => {
-    const blob = new Blob([document.documentElement.outerHTML], {
-      type: 'text/html'
-    });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'pixel_art.html';
-    a.click();
-  };
 
   // ── Cloudinary ──
   const CLOUDINARY_CLOUD = 'dedohfnpu';
