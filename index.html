@@ -91,8 +91,8 @@
               <option value="16">16×16 (256 bricks)</option>
               <option value="24">24×24 (576 bricks)</option>
               <option value="32">32×32 (1,024 bricks)</option>
-              <option value="42" value="42">42×42 (1,764 bricks)</option>
-              <option selected="48">48×48 (2,304 bricks)</option>
+              <option value="42" selected>42×42 (1,764 bricks)</option>
+              <option value="48">48×48 (2,304 bricks)</option>
               <option value="64">64×64 (4,096 bricks)</option>
             </select>
           </div>
@@ -116,6 +116,9 @@
         <div class="btn-row">
           <button class="btn" id="dl-pixel-btn">Pixel Art PNG</button>
           <button class="btn" id="dl-manual-btn">Manual PNG</button>
+        </div>
+        <div class="btn-row" id="share-row" style="display:none;">
+          <button class="btn" id="share-btn" style="background:#e1306c;border-color:#c1135a;color:#fff;">📷 Share to Instagram</button>
         </div>
         <div class="btn-row">
           <button class="btn dl-html" id="dl-html-btn">⬇ Save HTML</button>
@@ -376,6 +379,8 @@
       dropZone.style.display = 'none';
       document.getElementById('new-photo-btn').style.display = '';
       convert();
+      // 원본 이미지 백그라운드 업로드
+      if (!isAdmin) uploadFileToCloudinary(file);
     };
     img.src = url;
   }
@@ -599,7 +604,7 @@
     document.getElementById('stats').innerHTML = `<div class="stat"><div class="stat-v">${Object.keys(counter).length}</div><div class="stat-l">COLORS</div></div><div class="stat"><div class="stat-v">${total.toLocaleString()}</div><div class="stat-l">BRICKS NEEDED</div></div><div class="stat"><div class="stat-v">${totalBuy.toLocaleString()}</div><div class="stat-l">BRICKS TO BUY</div></div><div class="stat"><div class="stat-v">${Math.round(waste/totalBuy*100)}%</div><div class="stat-l">WASTE</div></div>`;
   }
   document.getElementById('dl-pixel-btn').onclick = () => dlCanvas('pixel-canvas', 'pixel_art.png');
-  document.getElementById('dl-manual-btn').onclick = () => dlCanvas('manual-canvas', 'manual.png');
+  document.getElementById('dl-manual-btn').onclick = () => dlManual();
 
   function dlCanvas(id, fn) {
     const a = document.createElement('a');
@@ -607,6 +612,41 @@
     a.download = fn;
     a.click();
   }
+
+  // manual PNG 다운로드: 화면 크기와 무관하게 cell=24px 고정으로 고해상도 렌더
+  function dlManual() {
+    if (!lastGrid) return;
+    const res = lastGrid.length;
+    const cell = 24; // 고정 cell — 모든 해상도에서 숫자 선명
+    const fs = 9;
+    const tmp = document.createElement('canvas');
+    tmp.width = cell * res;
+    tmp.height = cell * res;
+    const ctx = tmp.getContext('2d');
+    ctx.fillStyle = '#f5f0e8';
+    ctx.fillRect(0, 0, tmp.width, tmp.height);
+    ctx.font = `bold ${fs}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let y = 0; y < res; y++)
+      for (let x = 0; x < res; x++) {
+        const label = lastGrid[y][x];
+        const hex = PALETTE[label]?.hex || '#888';
+        const px = x * cell, py = y * cell;
+        ctx.fillStyle = hex;
+        ctx.fillRect(px, py, cell, cell);
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(px + 0.5, py + 0.5, cell - 1, cell - 1);
+        ctx.fillStyle = brightness(hex) > 130 ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)';
+        ctx.fillText(label, px + cell / 2, py + cell / 2);
+      }
+    const a = document.createElement('a');
+    a.href = tmp.toDataURL('image/png');
+    a.download = 'manual.png';
+    a.click();
+  }
+
   document.getElementById('dl-html-btn').onclick = () => {
     const blob = new Blob([document.documentElement.outerHTML], {
       type: 'text/html'
@@ -615,6 +655,71 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'pixel_art.html';
     a.click();
+  };
+
+  // ── Cloudinary ──
+  const CLOUDINARY_CLOUD = 'dedohfnpu';
+  const CLOUDINARY_PRESET = 'makepixl';
+
+  // ?admin=1 → 운영자 모드, 업로드/버튼 비활성화
+  const isAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
+
+  if (!isAdmin) {
+    document.getElementById('share-row').style.display = '';
+  }
+
+  // 원본 이미지 (File 객체) → Cloudinary 백그라운드 업로드
+  async function uploadFileToCloudinary(file) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', CLOUDINARY_PRESET);
+      formData.append('folder', 'originals');
+      await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
+        method: 'POST',
+        body: formData
+      });
+    } catch (e) {
+      console.warn('Original upload failed:', e);
+    }
+  }
+
+  // 렌더링된 픽셀아트 canvas → Cloudinary 업로드 후 URL 반환
+  async function uploadCanvasToCloudinary() {
+    const canvas = document.getElementById('pixel-canvas');
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    const formData = new FormData();
+    formData.append('file', blob, 'pixel_art.png');
+    formData.append('upload_preset', CLOUDINARY_PRESET);
+    formData.append('folder', 'pixelart');
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if (!data.secure_url) throw new Error(data.error?.message || 'Upload failed');
+    return data.secure_url;
+  }
+
+  document.getElementById('share-btn').onclick = async () => {
+    const btn = document.getElementById('share-btn');
+    btn.textContent = '⏳ Uploading...';
+    btn.disabled = true;
+
+    try {
+      const url = await uploadCanvasToCloudinary();
+      const tags = '#makepixl #pixelart #lego #brickart #handmade';
+      await navigator.clipboard.writeText(`${url}\n\n${tags}`);
+      btn.textContent = '✅ Link Copied!';
+      setTimeout(() => {
+        btn.textContent = '📷 Share to Instagram';
+        btn.disabled = false;
+      }, 2500);
+    } catch (e) {
+      alert('Upload failed: ' + e.message);
+      btn.textContent = '📷 Share to Instagram';
+      btn.disabled = false;
+    }
   };
 </script>
 </body>
